@@ -1,0 +1,177 @@
+from morabaraba.morabaraba_player import MorabarabaPlayer
+from morabaraba.morabaraba_action import MorabarabaAction
+from morabaraba.morabaraba_action import MorabarabaActionType
+from morabaraba.morabaraba_rules import MorabarabaRules
+from core import Color
+
+
+class AI(MorabarabaPlayer):
+    name = "King of Genius"
+
+    def __init__(self, color):  
+        super(AI, self).__init__(color)
+        self.position = color.value
+
+    def play(self, state, remain_time): 
+        rules=MorabarabaRules(self.position)
+        board=state.get_board()
+        actions=rules.get_player_actions(state,self.position)
+        if actions[0].get_action_as_dict()["action_type"] == MorabarabaActionType.ADD :
+            action_choice=ADD(board,self.position,actions)
+            if action_choice != False :
+                 return action_choice
+            action_choice=ADD(board,-1*self.position,actions)
+            if action_choice != False :
+                return action_choice
+            return Make_occasion(rules,state,self.position,actions)
+        elif actions[0].get_action_as_dict()["action_type"] == MorabarabaActionType.STEAL  : 
+            action_choice=STEAL(board,self.position*-1,actions)
+            if action_choice != False :
+                return action_choice
+            return MorabarabaRules.random_play(state, self.position)
+        elif actions[0].get_action_as_dict()["action_type"] == MorabarabaActionType.MOVE:
+            action_choice=Move(board,self.position,actions)
+            if action_choice != False :
+                 return action_choice
+            action_choice=Move(board,-1*self.position,actions)
+            if action_choice != False :
+                return action_choice
+            return Make_occasion(rules,state,self.position,actions)
+        else :
+            return MorabarabaRules.random_play(state, self.position)
+
+def is_making_mill(board,player,cell)  :   
+    player_mills = []
+    pieces = board.get_player_pieces_on_board(Color(player))
+    mills = board.mills()
+    for mill in mills:
+        if cell in mill: 
+            is_mill = True
+            for mill_cell in mill:
+                if mill_cell not in pieces and mill_cell != cell : is_mill =  False   
+            if is_mill == True: 
+                 player_mills.append(mill)
+
+    if len(player_mills) == 0: is_player_mill = False 
+    else : is_player_mill = True 
+    return [ is_player_mill , player_mills ]
+
+def is_effective_making_mill(state,player,rules,cell,mill) :
+    actions=rules.get_player_actions(state,player)
+    is_mill=False
+    for action in actions :
+        if action.get_action_as_dict()['action']['to'] == cell and action.get_action_as_dict()['action']['at'] not in mill and is_mill == False:
+            is_mill=True
+    return is_mill
+
+def ADD(board,player,actions) :
+    k=-1
+    for cell in board.get_all_empty_cells() :
+        k+=1
+        if is_making_mill(board,player,cell)[0]==True :
+             return actions[k] 
+    return False
+
+def STEAL(board,player,actions) :
+     for cell in board.get_all_empty_cells() :
+        mills=is_making_mill(board,player,cell) 
+        if mills[0]==True :
+            for mill_cell in mills[1][0] :
+                if mill_cell != cell :
+                    for action in actions :
+                        if action.get_action_as_dict()['action']['at'] == mill_cell :
+                            return action
+     return False 
+
+def Move(board,player,actions) :
+   for cell in board.get_all_empty_cells() :
+        mills=is_making_mill(board,player,cell) 
+        if mills[0]==True :
+            for mill in mills[1] :
+                for action in actions :
+                    if action.get_action_as_dict()['action']['to'] == cell and action.get_action_as_dict()['action']['at'] not in mill  :
+                        return action
+   return False
+
+def Make_occasion(rules,state,player,actions) :
+    occasions=[]
+    dont_move_cell=[]
+    board=state.get_board()
+    mills = board.mills()
+    player_mills=board.player_mills(player)
+    pieces = board.get_player_pieces_on_board(Color(player))
+    pieces_adverses = board.get_player_pieces_on_board(Color(-1*player))
+    if actions[0].get_action_as_dict()["action_type"] == MorabarabaActionType.ADD :
+        if len(pieces) == 0 :
+            return MorabarabaRules.random_play(state,player)
+        else :
+            for piece in pieces :
+                for mill in mills :
+                    luck=True
+                    if piece in mill :
+                        for mill_cell in mill :
+                            if mill_cell in pieces_adverses :
+                                luck=False
+                        if luck == True :
+                            for mill_cell in mill :
+                                if mill_cell != piece and mill_cell in board.get_all_empty_cells() :
+                                    occasions.append(mill_cell)
+            luck=[0,(0,0)]
+            if len(occasions) == 0 :
+                return MorabarabaRules.random_play(state,player)
+            else :
+                for occasion in occasions :
+                    if occasions.count(occasion) > luck[0] :
+                        luck=[occasions.count(occasion),occasion]
+                for action in actions :
+                    if action.get_action_as_dict()['action']['to'] == luck[1] :
+                          return action
+    else :   
+        for mill in player_mills :
+            for mill_cell in mill :
+                dont_move_cell.append(mill_cell)
+        
+        choice=contracte(dont_move_cell,actions,state,rules,player)
+        return choice
+
+
+def contracte(dont_move_cell,actions,state,rules,player) :
+    if len(dont_move_cell) != 0 :
+        new_actions=[new_action for new_action in actions if new_action.get_action_as_dict()["action"]['at'] not in dont_move_cell]
+        if len(new_actions) != 0 :
+            choice=which_move(state,rules,new_actions,player)
+            if choice == False :
+                choice=which_move(state,rules,dont_move_cell,player)
+                if choice == False :
+                    choice=random_play(dont_move_cell)
+        else :
+            choice=which_move(state,rules,dont_move_cell,player)
+            if choice == False :
+                choice=random_play(dont_move_cell)
+    else :
+        choice=which_move(state,rules,actions,player)
+        if choice == False :
+            choice=random_play(actions)
+
+    return choice    
+
+def which_move(state,rules,actions,player) :
+    board=state.get_board()
+    for action in actions :
+        old_board=state.get_board()
+        at=action.get_action_as_dict()["action"]["at"]
+        to=action.get_action_as_dict()["action"]["to"]
+        board.empty_cell(at)
+        board.fill_cell(to,Color(player))
+        state.set_board(board)
+        mills=is_making_mill(board,player*-1,at)
+        if mills[0] != True or is_effective_making_mill(state,player*-1,rules,at,mills[1][0]) == False :
+             return action
+
+        state.set_board(old_board)
+    return False            
+
+def random_play(actions) :
+    if len(actions) != 0 :
+        return random.choice(actions)
+    return False
